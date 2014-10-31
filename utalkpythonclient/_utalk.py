@@ -126,12 +126,17 @@ class UTalkClient(object, MaxAuthMixin):
 
         self.stomp = StompHelper()
 
+    def send(self, message):
+        wrapped = '["{}"]'.format(message)
+        self.ws.send(wrapped)
+        return wrapped
+
     @staticmethod
     def parse_sockjs(frame):
         """
             Parses a sockjs frame and extracts it's content.
         """
-        match = re.search(r'([aoh]){1}(?:\[\")*(.*?)(?:\\u0000)?(?:[\]"])*$', frame).groups()
+        match = re.search(r'([aoh]){1}(?:\[\")*(.*?)(?:[\]"])*$', frame).groups()
         if match:
             wstype, content = match
             return Message(SOCKJS_TYPES[wstype], content)
@@ -166,19 +171,43 @@ class UTalkClient(object, MaxAuthMixin):
         message = self.parse_sockjs(frame)
 
         if message.type is SOCKJS_CONNECTED:
-            self.ws.send(self.stomp.connect_frame(self.login, self.token))
+            self.send(self.stomp.connect_frame(self.login, self.token))
             print '> Started stomp session as {}'.format(self.username)
 
         elif message.type is SOCKJS_MESSAGE:
             stomp_message = self.stomp.decode(message.content)
 
             if stomp_message.command == 'CONNECTED':
-                self.ws.send(self.stomp.subscribe_frame(self.username))
+                self.send(self.stomp.subscribe_frame(self.username))
                 print '> Listening on {} messages'.format(self.username)
+                self.send_message('539abb5f4496404478f63163', 'Hola soc jo')
             if stomp_message.command == 'MESSAGE':
                 self.handle_message(stomp_message)
             if stomp_message.command == 'ERROR':
                 print message.content
+
+    def send_message(self, conversation, text):
+        """
+            Sends a stomp message to a specific conversation
+        """
+        message = RabbitMessage()
+        message.prepare()
+        message['source'] = 'test'
+        message['data'] = {'text': text}
+        message['action'] = 'add'
+        message['object'] = 'message'
+        message['user'] = {'username': self.username}
+        if self.domain:
+            message['domain'] = self.domain
+
+        headers = {
+            "destination": "/exchange/{}.publish/{}.messages".format(self.username, conversation),
+        }
+        # Convert json to text without blank space, and escape it
+        json_message = json.dumps(message.packed, separators=(',', ':'))
+        json_message = json_message.replace('"', '\\"')
+
+        self.send(self.stomp.send_frame(headers, json_message))
 
     def handle_message(self, stomp):
         """
