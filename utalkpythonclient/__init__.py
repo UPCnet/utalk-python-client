@@ -7,7 +7,7 @@ Options:
 """
 
 from docopt import docopt
-from utalkpythonclient._utalk import UTalkClient
+from utalkpythonclient.client import UTalkClient
 import getpass
 import sys
 

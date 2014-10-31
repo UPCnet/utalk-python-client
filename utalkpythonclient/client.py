@@ -178,9 +178,10 @@ class UTalkClient(object, MaxAuthMixin):
             stomp_message = self.stomp.decode(message.content)
 
             if stomp_message.command == 'CONNECTED':
-                self.send(self.stomp.subscribe_frame(self.username))
+                destination = "/exchange/{}.subscribe".format(self.username)
+                self.send(self.stomp.subscribe_frame(destination))
                 print '> Listening on {} messages'.format(self.username)
-                self.send_message('539abb5f4496404478f63163', 'Hola soc jo')
+
             if stomp_message.command == 'MESSAGE':
                 self.handle_message(stomp_message)
             if stomp_message.command == 'ERROR':
