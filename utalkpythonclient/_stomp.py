@@ -1,8 +1,11 @@
 from collections import OrderedDict
-from maxcarrot import RabbitMessage
+from collections import namedtuple
 from stomp.utils import Frame, convert_frame_to_lines
 
+import json
 import re
+
+StompMessage = namedtuple('StompMessage', ['command', 'body', 'json', 'headers'])
 
 
 def forge_message(command, headers, body):
@@ -11,42 +14,34 @@ def forge_message(command, headers, body):
     return '["' + ''.join(message[:-1]) + '"]'
 
 
-class StompClient(object):
-    def __init__(self, domain, username, passcode, sockjs_client):
-        self.domain = domain
-        self.username = username
-        self.auth_username = username if domain is None else '{}:{}'.format(domain, username)
-        self.passcode = passcode
-        self.sockjs = sockjs_client
+class StompHelper(object):
 
-    @property
-    def ws(self):
-        return self.sockjs.ws
+    def decode(self, message):
+        command, header, body = re.search(r'(\w+)\\n(.*)\\n([^\n]+)', message).groups()
+        headers = dict(re.findall(r'([^:]+):(.*?)\\n?', header, re.DOTALL | re.MULTILINE))
 
-    def connect(self):
+        try:
+            decoded_body = json.loads(body.replace('\\', ''))
+        except:
+            decoded_body = ''
+
+        return StompMessage(command, body, decoded_body, headers)
+
+    def connect_frame(self, login, passcode):
         headers = OrderedDict()
-        headers["login"] = self.auth_username
-        headers["passcode"] = self.passcode
+        headers["login"] = login
+        headers["passcode"] = passcode
         headers["host"] = "/"
         headers["accept-version"] = "1.1,1.0"
         headers["heart-beat"] = "0,0"
 
         message = forge_message('CONNECT', headers, '\u0000')
-        self.ws.send(message)
-        print '> Started stomp session as {}'.format(self.username)
+        return message
 
-    def subscribe(self):
+    def subscribe_frame(self, username):
         headers = OrderedDict()
         headers["id"] = "sub-0",
-        headers["destination"] = "/exchange/{}.subscribe".format(self.username),
+        headers["destination"] = "/exchange/{}.subscribe".format(username),
 
         message = forge_message('SUBSCRIBE', headers, '\u0000')
-        self.ws.send(message)
-        print '> Listening on {} messages'.format(self.username)
-        print
-
-    def receive(self, headers, body):
-        message = RabbitMessage.unpack(body)
-        destination = re.search(r'([0-9a-f]+).(?:notifications|messages)', headers['destination']).groups()[0]
-        if message['action'] == 'add' and message['object'] == 'message':
-            print '> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text'])
+        return message

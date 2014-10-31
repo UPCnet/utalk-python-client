@@ -5,7 +5,9 @@ import requests
 import string
 import websocket
 
-from utalkpythonclient._stomp import StompClient
+from collections import namedtuple
+from maxcarrot import RabbitMessage
+from utalkpythonclient._stomp import StompHelper
 
 
 def random_str(length):
@@ -13,11 +15,29 @@ def random_str(length):
     return ''.join(random.choice(letters) for c in range(length))
 
 
+SOCKJS_CONNECTED = object()
+SOCKJS_MESSAGE = object()
+SOCKJS_HEARTBEAT = object()
+SOCKJS_UNKNOWN = object()
+
+SOCKJS_TYPES = {
+    'o': SOCKJS_CONNECTED,
+    'h': SOCKJS_HEARTBEAT,
+    'a': SOCKJS_MESSAGE
+}
+
+Message = namedtuple('Message', ['type', 'content'])
+
+
 class MaxAuthMixin():
+    """
+        Helper functions for max/oauth authentication tasks
+    """
 
     @staticmethod
     def oauth2_headers(username, token, scope="widgetcli"):
         """
+            Returns valid OAuth2 authentication headers for max.
         """
         headers = {
             'X-Oauth-Token': str(token),
@@ -28,18 +48,18 @@ class MaxAuthMixin():
 
     @staticmethod
     def get_max_info(maxserver):
+        """
+            Returns the public info bits from a maxserver.
+        """
         response = requests.get('{}/info'.format(maxserver), verify=False)
         info = response.json()
         return info
 
-    @staticmethod
-    def get_max_domain(maxserver):
-        match = re.match(r'^.*?\/([^\/\.]+)/?$', maxserver.strip(), re.IGNORECASE)
-        domain = match.groups()[0] if match else None
-        return domain
-
     @classmethod
     def get_max_settings(cls, maxserver, username, token):
+        """
+            Returns the (private) settings from a maxserver.
+        """
         response = requests.get(
             '{}/info/settings'.format(maxserver),
             headers=cls.oauth2_headers(username, token),
@@ -47,8 +67,20 @@ class MaxAuthMixin():
         info = response.json()
         return info
 
+    @staticmethod
+    def get_max_domain(maxserver):
+        """
+            Extracts the domain from the max server url, if any.
+        """
+        match = re.match(r'^.*?\/([^\/\.]+)/?$', maxserver.strip(), re.IGNORECASE)
+        domain = match.groups()[0] if match else None
+        return domain
+
     @classmethod
     def get_token(cls, oauth_server, username, password):
+        """
+            Retrieves the token for an authenticated user.
+        """
 
         payload = {
             "grant_type": 'password',
@@ -78,21 +110,38 @@ class MaxAuthMixin():
 class UTalkClient(object, MaxAuthMixin):
 
     def __init__(self, maxserver, username, password):
-
+        """
+            Creates a utalk client fetching required info from the
+            max server.
+        """
         max_info = self.get_max_info(maxserver)
         oauth_server = max_info['max.oauth_server']
         stomp_server = '{}/stomp'.format(maxserver.replace('http', 'ws'))
 
-        token = self.get_token(oauth_server, username, password)
-        self.domain = self.get_max_domain(maxserver)
-
         self.host = stomp_server
+        self.domain = self.get_max_domain(maxserver)
         self.username = username
-        self.passcode = token
-        self.stomp = StompClient(self.domain, self.username, self.passcode, self)
-        print username, token
+        self.login = username if self.domain is None else '{}:{}'.format(self.domain, username)
+        self.token = self.get_token(oauth_server, username, password)
+
+        self.stomp = StompHelper()
+
+    @staticmethod
+    def parse_sockjs(frame):
+        """
+            Parses a sockjs frame and extracts it's content.
+        """
+        match = re.search(r'([aoh]){1}(?:\[\")*(.*?)(?:\\u0000)?(?:[\]"])*$', frame).groups()
+        if match:
+            wstype, content = match
+            return Message(SOCKJS_TYPES[wstype], content)
+        else:
+            return Message(SOCKJS_UNKNOWN, '')
 
     def connect(self):
+        """
+            Opens a websocket and loops waiting for incoming frames.
+        """
         self.url = '/'.join([
             self.host,
             str(random.randint(0, 1000)),
@@ -108,26 +157,52 @@ class UTalkClient(object, MaxAuthMixin):
         self.ws.on_open = self.on_open
         self.ws.run_forever()
 
-    def on_message(self, ws, message):
-        if message[0] == 'o':
-            self.stomp.connect()
-        if message[0] == 'a':
-            command, params, body = re.search(r'a\[\"(\w+)\\n(.*)\\n([^\n]+)"\]', message).groups()
-            headers = dict(re.findall(r'([^:]+):(.*?)\\n?', params, re.DOTALL | re.MULTILINE))
+    def on_message(self, ws, frame):
+        """
+            Triggered when a frame arribes trough the websocket.
 
-            if command == 'CONNECTED':
-                self.stomp.subscribe()
-            if command == 'MESSAGE':
-                decoded_message = json.loads(body.replace('\\"', '"').replace('\u0000', ''))
-                self.stomp.receive(headers, decoded_message)
-            if command == 'ERROR':
-                print params, body
+            Decodes contained stomp frame, and handles actions.
+        """
+        message = self.parse_sockjs(frame)
+
+        if message.type is SOCKJS_CONNECTED:
+            self.ws.send(self.stomp.connect_frame(self.login, self.token))
+            print '> Started stomp session as {}'.format(self.username)
+
+        elif message.type is SOCKJS_MESSAGE:
+            stomp_message = self.stomp.decode(message.content)
+
+            if stomp_message.command == 'CONNECTED':
+                self.ws.send(self.stomp.subscribe_frame(self.username))
+                print '> Listening on {} messages'.format(self.username)
+            if stomp_message.command == 'MESSAGE':
+                self.handle_message(stomp_message)
+            if stomp_message.command == 'ERROR':
+                print message.content
+
+    def handle_message(self, stomp):
+        """
+            Handle a decoded stomp message and log them.
+        """
+        message = RabbitMessage.unpack(stomp.json)
+        destination = re.search(r'([0-9a-f]+).(?:notifications|messages)', stomp.headers['destination']).groups()[0]
+        if message['action'] == 'add' and message['object'] == 'message':
+            print '> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text'])
 
     def on_error(self, ws, error):
+        """
+            Logs on websocket error event
+        """
         print '> ERROR {}'.format(error)
 
     def on_close(self, ws):
+        """
+            Logs on websocket close event
+        """
         print "> Closed websocket connection"
 
     def on_open(self, ws):
+        """
+            Logs on websocket opened event
+        """
         print '> Opened websocket connection to {}'.format(self.url)
