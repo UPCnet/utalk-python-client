@@ -109,11 +109,12 @@ class MaxAuthMixin():
 
 class UTalkClient(object, MaxAuthMixin):
 
-    def __init__(self, maxserver, username, password):
+    def __init__(self, maxserver, username, password, quiet=False):
         """
             Creates a utalk client fetching required info from the
             max server.
         """
+        self.quiet = quiet
         max_info = self.get_max_info(maxserver)
         oauth_server = max_info['max.oauth_server']
         stomp_server = '{}/stomp'.format(maxserver.replace('http', 'ws'))
@@ -126,7 +127,22 @@ class UTalkClient(object, MaxAuthMixin):
 
         self.stomp = StompHelper()
 
+    def log(self, message):
+        if not self.quiet:
+            print message
+
+    def trigger(self, event, *args, **kwargs):
+        """
+            Tries to call a method binded to an event
+        """
+        event_handler_name = 'on_{}'.format(event)
+        if hasattr(self, event_handler_name):
+            getattr(self, event_handler_name)(*args, **kwargs)
+
     def send(self, message):
+        """
+            Wraps a message to a valid sockjs frame
+        """
         wrapped = '["{}"]'.format(message)
         self.ws.send(wrapped)
         return wrapped
@@ -147,6 +163,7 @@ class UTalkClient(object, MaxAuthMixin):
         """
             Opens a websocket and loops waiting for incoming frames.
         """
+        self.trigger('connecting')
         self.url = '/'.join([
             self.host,
             str(random.randint(0, 1000)),
@@ -162,6 +179,12 @@ class UTalkClient(object, MaxAuthMixin):
         self.ws.on_open = self.on_open
         self.ws.run_forever()
 
+    def disconnect(self):
+        """
+            Disconnects client from socket
+        """
+        self.ws.close()
+
     def on_message(self, ws, frame):
         """
             Triggered when a frame arribes trough the websocket.
@@ -172,7 +195,7 @@ class UTalkClient(object, MaxAuthMixin):
 
         if message.type is SOCKJS_CONNECTED:
             self.send(self.stomp.connect_frame(self.login, self.token))
-            print '> Started stomp session as {}'.format(self.username)
+            self.log('> Started stomp session as {}'.format(self.username))
 
         elif message.type is SOCKJS_MESSAGE:
             stomp_message = self.stomp.decode(message.content)
@@ -180,12 +203,13 @@ class UTalkClient(object, MaxAuthMixin):
             if stomp_message.command == 'CONNECTED':
                 destination = "/exchange/{}.subscribe".format(self.username)
                 self.send(self.stomp.subscribe_frame(destination))
-                print '> Listening on {} messages'.format(self.username)
+                self.log('> Listening on {} messages'.format(self.username))
+                self.trigger('start_listening')
 
             if stomp_message.command == 'MESSAGE':
                 self.handle_message(stomp_message)
             if stomp_message.command == 'ERROR':
-                print message.content
+                self.log(message.content)
 
     def send_message(self, conversation, text):
         """
@@ -209,6 +233,7 @@ class UTalkClient(object, MaxAuthMixin):
         json_message = json_message.replace('"', '\\"')
 
         self.send(self.stomp.send_frame(headers, json_message))
+        self.trigger('message_sent')
 
     def handle_message(self, stomp):
         """
@@ -217,22 +242,26 @@ class UTalkClient(object, MaxAuthMixin):
         message = RabbitMessage.unpack(stomp.json)
         destination = re.search(r'([0-9a-f]+).(?:notifications|messages)', stomp.headers['destination']).groups()[0]
         if message['action'] == 'add' and message['object'] == 'message':
-            print '> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text'])
+            self.log('> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text']))
+            self.trigger('message_received')
+        if message['action'] == 'add' and message['object'] == 'conversation':
+            self.log('> {}@{}: Just started a chat'.format(message['user']['username'], destination))
+            self.trigger('conversation_started')
 
     def on_error(self, ws, error):
         """
             Logs on websocket error event
         """
-        print '> ERROR {}'.format(error)
+        self.log('> ERROR {}'.format(error))
 
     def on_close(self, ws):
         """
             Logs on websocket close event
         """
-        print "> Closed websocket connection"
+        self.log("> Closed websocket connection")
 
     def on_open(self, ws):
         """
             Logs on websocket opened event
         """
-        print '> Opened websocket connection to {}'.format(self.url)
+        self.log('> Opened websocket connection to {}'.format(self.url))
