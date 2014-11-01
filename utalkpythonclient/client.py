@@ -178,6 +178,7 @@ class UTalkClient(object, MaxAuthMixin):
         )
         self.ws.on_open = self.on_open
         self.ws.run_forever()
+        return True
 
     def disconnect(self):
         """
@@ -191,6 +192,7 @@ class UTalkClient(object, MaxAuthMixin):
 
             Decodes contained stomp frame, and handles actions.
         """
+        self.trigger('frame')
         message = self.parse_sockjs(frame)
 
         if message.type is SOCKJS_CONNECTED:
@@ -198,7 +200,10 @@ class UTalkClient(object, MaxAuthMixin):
             self.log('> Started stomp session as {}'.format(self.username))
 
         elif message.type is SOCKJS_MESSAGE:
-            stomp_message = self.stomp.decode(message.content)
+            try:
+                stomp_message = self.stomp.decode(message.content)
+            except:
+                print 'decode error'
 
             if stomp_message.command == 'CONNECTED':
                 destination = "/exchange/{}.subscribe".format(self.username)
@@ -206,10 +211,17 @@ class UTalkClient(object, MaxAuthMixin):
                 self.log('> Listening on {} messages'.format(self.username))
                 self.trigger('start_listening')
 
-            if stomp_message.command == 'MESSAGE':
+            elif stomp_message.command == 'MESSAGE':
                 self.handle_message(stomp_message)
-            if stomp_message.command == 'ERROR':
+
+            elif stomp_message.command == 'ERROR':
                 self.log(message.content)
+
+            else:
+                self.log(stomp_message)
+
+        elif message.type is SOCKJS_UNKNOWN:
+            print frame
 
     def send_message(self, conversation, text):
         """
@@ -244,9 +256,13 @@ class UTalkClient(object, MaxAuthMixin):
         if message['action'] == 'add' and message['object'] == 'message':
             self.log('> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text']))
             self.trigger('message_received')
-        if message['action'] == 'add' and message['object'] == 'conversation':
+        elif message['action'] == 'add' and message['object'] == 'conversation':
             self.log('> {}@{}: Just started a chat'.format(message['user']['username'], destination))
             self.trigger('conversation_started')
+        elif message['action'] == 'ack' and message['object'] == 'message':
+            self.trigger('message_ackd')
+        else:
+            print '\n{}\n'.format(message)
 
     def on_error(self, ws, error):
         """
