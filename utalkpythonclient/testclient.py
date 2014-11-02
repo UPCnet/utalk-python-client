@@ -1,9 +1,11 @@
 from utalkpythonclient.client import UTalkClient
 from gevent.monkey import patch_all
 import gevent
+from ws4py.client.geventclient import WebSocketClient
 
 
 class UTalkTestClient(UTalkClient):
+    ws_client_class = WebSocketClient
 
     def setup(self, send, expect, ready):
         """
@@ -17,6 +19,10 @@ class UTalkTestClient(UTalkClient):
         self.expected_acks = self.expected_messages
         self.received_messages = 0
         self.ackd_messages = 0
+
+    def loop(self):
+        while True:
+            self.ws.receive()
 
     def on_connecting(self):
         patch_all()

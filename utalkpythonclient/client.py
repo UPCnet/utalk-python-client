@@ -3,7 +3,8 @@ import random
 import re
 import requests
 import string
-import websocket
+
+from ws4py.client.threadedclient import WebSocketClient
 
 from collections import namedtuple
 from maxcarrot import RabbitMessage
@@ -108,6 +109,7 @@ class MaxAuthMixin():
 
 
 class UTalkClient(object, MaxAuthMixin):
+    ws_client_class = WebSocketClient
 
     def __init__(self, maxserver, username, password, quiet=False):
         """
@@ -159,6 +161,13 @@ class UTalkClient(object, MaxAuthMixin):
         else:
             return Message(SOCKJS_UNKNOWN, '')
 
+    def loop(self):
+        try:
+            self.ws.run_forever()
+        except KeyboardInterrupt:
+            self.ws.close()
+        return True
+
     def connect(self):
         """
             Opens a websocket and loops waiting for incoming frames.
@@ -169,16 +178,22 @@ class UTalkClient(object, MaxAuthMixin):
             str(random.randint(0, 1000)),
             random_str(8),
             'websocket'])
-        self.ws = websocket.WebSocketApp(
-            self.url,
-            header={'Connection': 'Keep-Alive'},
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close
-        )
-        self.ws.on_open = self.on_open
-        self.ws.run_forever()
-        return True
+
+        # self.ws = websocket.WebSocketApp(
+        #     self.url,
+        #     header={'Connection': 'Keep-Alive'},
+        #     on_message=self.on_message,
+        #     on_error=self.on_error,
+        #     on_close=self.on_close
+        # )
+
+        self.ws = self.ws_client_class(self.url)
+        self.ws.opened = self.on_open
+        self.ws.closed = self.on_close
+        self.ws.received_message = self.on_message
+        self.ws.connect()
+        self.loop()
+
 
     def disconnect(self):
         """
@@ -186,14 +201,14 @@ class UTalkClient(object, MaxAuthMixin):
         """
         self.ws.close()
 
-    def on_message(self, ws, frame):
+    def on_message(self, frame):
         """
             Triggered when a frame arribes trough the websocket.
 
             Decodes contained stomp frame, and handles actions.
         """
         self.trigger('frame')
-        message = self.parse_sockjs(frame)
+        message = self.parse_sockjs(frame.data)
 
         if message.type is SOCKJS_CONNECTED:
             self.send(self.stomp.connect_frame(self.login, self.token))
@@ -270,13 +285,15 @@ class UTalkClient(object, MaxAuthMixin):
         """
         self.log('> ERROR {}'.format(error))
 
-    def on_close(self, ws):
+    def on_close(self, ws, unk):
         """
             Logs on websocket close event
         """
+        print ws
+        print unk
         self.log("> Closed websocket connection")
 
-    def on_open(self, ws):
+    def on_open(self):
         """
             Logs on websocket opened event
         """
