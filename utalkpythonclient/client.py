@@ -1,14 +1,12 @@
 import json
 import re
-# import wsaccel
-# wsaccel.patch_ws4py()
-# from ws4py.client.threadedclient import WebSocketClient
 
 from maxcarrot import RabbitMessage
 from utalkpythonclient._stomp import StompHelper
 
 from utalkpythonclient.mixins import MaxAuthMixin
 from utalkpythonclient.transports import XHRPollingTransport
+from utalkpythonclient.transports import WebsocketTransport
 from utalkpythonclient.transports import SOCKJS_CONNECTED
 from utalkpythonclient.transports import SOCKJS_MESSAGE
 from utalkpythonclient.transports import SOCKJS_UNKNOWN
@@ -66,19 +64,9 @@ class UTalkClient(object, MaxAuthMixin):
             Opens a websocket and loops waiting for incoming frames.
         """
         self.trigger('connecting')
-
-        # self.ws = websocket.WebSocketApp(
-        #     self.url,
-        #     header={'Connection': 'Keep-Alive'},
-        #     on_message=self.on_message,
-        #     on_error=self.on_error,
-        #     on_close=self.on_close
-        # )
-
-        #self.ws.opened = self.on_open
-        #self.ws.closed = self.on_close
-
         self.transport.on_message = self.on_message
+        self.transport.on_open = self.on_open
+        self.transport.on_close = self.on_close
         self.transport.connect()
 
     def disconnect(self):
@@ -185,4 +173,4 @@ class UTalkClient(object, MaxAuthMixin):
         """
             Logs on websocket opened event
         """
-        self.log('> Opened websocket connection to {}'.format(self.url))
+        self.log('> Opened websocket connection to {}'.format(self.transport.url))

@@ -1,10 +1,14 @@
 from collections import namedtuple
+from ws4py.client.threadedclient import WebSocketClient
 
 import json
 import random
 import re
 import requests
 import string
+import wsaccel
+
+wsaccel.patch_ws4py()
 
 SOCKJS_CONNECTED = object()
 SOCKJS_MESSAGE = object()
@@ -27,18 +31,21 @@ Message = namedtuple('Message', ['opcode', 'type', 'content'])
 class SockJSTransport(object):
     transport_id = ''
     transport_send_id = ''
+    regular_schema = ''
+    secure_schema = ''
+
     frame = namedtuple('SockJSFrame', ['data'])
 
     def __init__(self, url, prefix):
-        schema, host, port, path = re.match(r'(https?)?(?:://)?([^:/]+)(?::(\d+))?/?(.*?)/?$', url).groups()
+        schema, host, port, path = re.match(r'(\w+)?(?:://)?([^:/]+)(?::(\d+))?/?(.*?)/?$', url).groups()
 
         # If schema not defined, determine by its port
         if schema is None:
-            schema = 'https' if port == 443 else 'http'
+            schema = self.secure_schema if port == 443 else self.regular_schema
 
         # if port is not defined define it by its schema
         if port is None:
-            port = 443 if schema == 'https' else 80
+            port = 443 if schema == self.secure_schema else 80
 
         path = path.strip('/')
         prefix = prefix.strip('/')
@@ -53,8 +60,8 @@ class SockJSTransport(object):
         self.transport_id = self.transport_id
         self.transport_send_id = self.transport_send_id
 
-        regular_http = self.port == 80 and self.schema == 'http'
-        regular_https = self.port == 443 and self.schema == 'https'
+        regular_http = self.port == 80 and self.schema == self.regular_schema
+        regular_https = self.port == 443 and self.schema == self.secure_schema
         self.port_bit = '' if regular_http or regular_https else ':{}'.format(port)
 
         self.base_path = '/'.join([path, prefix]).replace('//', '/')
@@ -134,6 +141,8 @@ class SockJSTransport(object):
 class XHRPollingTransport(SockJSTransport):
     transport_id = 'xhr'
     transport_send_id = 'xhr_send'
+    regular_schema = 'http'
+    secure_schema = 'https'
 
     def _send(self, message):
         response = requests.post(
@@ -156,3 +165,35 @@ class XHRPollingTransport(SockJSTransport):
 
     def _close(self):
         self.closing = True
+
+
+class WebsocketTransport(SockJSTransport):
+    transport_id = 'websocket'
+    regular_schema = 'ws'
+    secure_schema = 'wss'
+
+    def __init__(self, url, prefix):
+        super(WebsocketTransport, self).__init__(url.replace('http', 'ws'), prefix)
+
+    def _send(self, message):
+        self.ws.send(message)
+
+    def _connect(self):
+        self.ws = WebSocketClient(self.url)
+        self.ws.opened = self.on_open
+        self.ws.closed = self.on_close
+        self.ws.received_message = self.handle_message
+
+        self.ws.connect()
+
+    def _start(self):
+        self.ws.run_forever()
+
+    def handle_message(self, message):
+        messages, partial = self.parse_sockjs(message.data)
+
+        for message in messages:
+            self.on_message(message)
+
+    def _close(self):
+        self.ws.close()
