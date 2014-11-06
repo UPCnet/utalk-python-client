@@ -24,9 +24,8 @@ class StompHelper(object):
             Decodes the parts of a STOMP Frame.
             Tries to decode the body as json.
         """
-        command, header, body = re.search(r'(\w+)\\n(.*)\\n([^\n]+)', message).groups()
-        body = body.replace('\\u0000', '').replace('\\', '')
-        headers = dict(re.findall(r'([^:]+):(.*?)\\n?', header, re.DOTALL | re.MULTILINE))
+        command, header, body = re.search(r'^(\w+)\n(.*?)\n\n(.*?)\x00?$', message, re.DOTALL).groups()
+        headers = dict(re.findall(r'\n?([^:]+):(.*)', header))
 
         try:
             decoded_body = json.loads(body)

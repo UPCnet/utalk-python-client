@@ -21,7 +21,9 @@ A STOMP-trough-websockets python implementation for the UTalk service""",
           'docopt',
           'maxcarrot',
           'stomp.py',
-          'ws4py',
+          #'ws4py',
+          #'wsaccel',
+          'gevent'
 
       ],
       entry_points="""

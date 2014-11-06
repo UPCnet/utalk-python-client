@@ -1,11 +1,13 @@
+import sys
+if 'threading' in sys.modules:
+    del sys.modules['threading']
 from utalkpythonclient.client import UTalkClient
 from gevent.monkey import patch_all
 import gevent
-from ws4py.client.geventclient import WebSocketClient
+#from ws4py.client.geventclient import WebSocketClient
 
 
 class UTalkTestClient(UTalkClient):
-    ws_client_class = WebSocketClient
 
     def setup(self, send, expect, ready):
         """
@@ -20,9 +22,9 @@ class UTalkTestClient(UTalkClient):
         self.received_messages = 0
         self.ackd_messages = 0
 
-    def loop(self):
-        while True:
-            self.ws.receive()
+    def succeded(self):
+        return self.received_messages == self.expected_messages and \
+            self.ackd_messages == self.expected_acks
 
     def on_connecting(self):
         patch_all()
@@ -39,9 +41,8 @@ class UTalkTestClient(UTalkClient):
         self.test_finished()
 
     def test_finished(self):
-        print '{} AKCD:{}, RECV:{}'.format(self.username, self.ackd_messages, self.received_messages)
-        if self.received_messages == self.expected_messages and \
-           self.ackd_messages == self.expected_acks:
+        #print '{} AKCD:{}, RECV:{}'.format(self.username, self.ackd_messages, self.received_messages)
+        if self.succeded():
             self.disconnect()
 
     def on_start_listening(self):

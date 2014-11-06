@@ -1,7 +1,7 @@
 """UTalk Websocket client
 
 Usage:
-    utalk <maxserver> <username>
+    utalk <maxserver> <username> --password <password>
 
 Options:
 """
@@ -20,8 +20,10 @@ def main(argv=sys.argv):
     print "  UTalk websocket client"
     print
 
-    print '> Enter password for user {}'.format(arguments['<username>'])
-    password = getpass.getpass()
+    password = arguments['<password>']
+    if not password:
+        print '> Enter password for user {}'.format(arguments['<username>'])
+        password = getpass.getpass()
 
     client = UTalkClient(
         maxserver=arguments['<maxserver>'],
@@ -29,3 +31,4 @@ def main(argv=sys.argv):
         password=password
     )
     client.connect()
+    client.start()
