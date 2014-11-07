@@ -1,5 +1,6 @@
 from collections import namedtuple
-from ws4py.client.threadedclient import WebSocketClient
+from ws4py.client.threadedclient import WebSocketClient as ThreadedWebSocketClient
+from ws4py.client.geventclient import WebSocketClient as GeventWebSocketClient
 
 import json
 import random
@@ -33,7 +34,7 @@ class SockJSTransport(object):
 
     frame = namedtuple('SockJSFrame', ['data'])
 
-    def __init__(self, url, prefix):
+    def __init__(self, url, prefix, use_gevent=False):
         """
             Parses url to found all the necessary bits for the connection.
 
@@ -79,6 +80,8 @@ class SockJSTransport(object):
         # whitout the transport identifier
         self.base_path = '/'.join([path, prefix]).replace('//', '/')
         self.path = '/'.join([self.base_path, server_id, client_id])
+
+        self.closing = False
 
     @property
     def base_url(self):
@@ -235,13 +238,6 @@ class XHRPollingTransport(SockJSTransport):
     regular_schema = 'http'
     secure_schema = 'https'
 
-    def __init__(self, url, prefix):
-        """
-            Custom init method to set the closing flag used to stop
-        """
-        super(XHRPollingTransport, self).__init__(url, prefix)
-        self.closing = False
-
     # SockJSTransport implementation
 
     def _send(self, message):
@@ -288,11 +284,13 @@ class WebsocketTransport(SockJSTransport):
     regular_schema = 'ws'
     secure_schema = 'wss'
 
-    def __init__(self, url, prefix):
+    def __init__(self, url, prefix, use_gevent=False):
         """
             Custom init method to format specific websocket schema, if url
             has been parsed from a http resource
         """
+        self.use_gevent = True
+        self.client_class = GeventWebSocketClient if use_gevent else ThreadedWebSocketClient
         super(WebsocketTransport, self).__init__(url.replace('http', 'ws'), prefix)
 
     # SockJSTransport implementation
@@ -309,10 +307,15 @@ class WebsocketTransport(SockJSTransport):
             ws object is eluded, because open event is managed by
             sockhs sending an OPEN frame, not websocket opening the connection.
         """
-        self.ws = WebSocketClient(self.url)
+        self.ws = self.client_class(self.url)
         self.ws.opened = self.noop
         self.ws.closed = self.ws_on_close
-        self.ws.received_message = self.ws_handle_frame
+
+        # When on gevent mode, messages will be handled inside the
+        # gevent receive loop, so don't bind received_message to be
+        # able to exit the loop on close call
+        if not self.use_gevent:
+            self.ws.received_message = self.ws_handle_frame
 
         self.ws.connect()
 
@@ -320,13 +323,17 @@ class WebsocketTransport(SockJSTransport):
         """
             Start listening thread
         """
-        self.ws.run_forever()
+        if self.use_gevent:
+            self.ws_gevent_loop()
+        else:
+            self.ws.run_forever()
 
     def _close(self):
         """
             Close websocket connection and thread
         """
         self.ws.close()
+        self.closing = True
 
     # Websocket object event handlers
 
@@ -334,7 +341,7 @@ class WebsocketTransport(SockJSTransport):
         """
             Triggered by the websocket client thread when a remote disconnection occurs.
         """
-        self.on_close('Websocket closed the connection with code {} "{}"'.format(code, reason))
+        self.on_close('{} "{}"'.format(code, reason))
 
     def ws_handle_frame(self, ws_frame):
         """
@@ -344,6 +351,17 @@ class WebsocketTransport(SockJSTransport):
 
         for frame in frames:
             self.handle_sockjs_frame(frame)
+
+    def ws_gevent_loop(self):
+        """
+            Alternative loop to use when running on gevent
+        """
+        while not self.closing:
+            ws_frame = self.ws.receive()
+            if ws_frame is not None:
+                self.ws_handle_frame(ws_frame)
+            else:
+                break
 
 # Make a mapping of the available transports, indexed by transport_id
 TRANSPORTS = set([obj for obj in locals().values() if getattr(obj, '__base__', '') is SockJSTransport])

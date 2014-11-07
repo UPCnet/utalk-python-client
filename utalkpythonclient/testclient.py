@@ -4,7 +4,6 @@ if 'threading' in sys.modules:
 from utalkpythonclient.client import UTalkClient
 from gevent.monkey import patch_all
 import gevent
-#from ws4py.client.geventclient import WebSocketClient
 
 
 class UTalkTestClient(UTalkClient):

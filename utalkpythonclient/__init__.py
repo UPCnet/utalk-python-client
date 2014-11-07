@@ -29,7 +29,6 @@ def main(argv=sys.argv):
         maxserver=arguments['<maxserver>'],
         username=arguments['<username>'],
         password=password,
-        transport='xhr'
     )
     client.connect()
     client.start()
