@@ -24,14 +24,14 @@ class StompHelper(object):
             Decodes the parts of a STOMP Frame.
             Tries to decode the body as json.
         """
-        command, header, body = re.search(r'^(\w+)\n(.*?)\n\n(.*?)\x00?$', message, re.DOTALL).groups()
+        match = re.search(r'^(\w+)\n(.*?)\n\n(.*?)\x00?$', message, re.DOTALL)
+        if match is None:
+            raise Exception('Stomp decode error: {}'.format(message))
+
+        command, header, body = match.groups()
         headers = dict(re.findall(r'\n?([^:]+):(.*)', header))
 
-        try:
-            decoded_body = json.loads(body)
-        except:
-            decoded_body = ''
-
+        decoded_body = json.loads(body) if body else body
         return StompMessage(command, body, decoded_body, headers)
 
     def connect_frame(self, login, passcode):

@@ -17,7 +17,7 @@ def main(argv=sys.argv):
     arguments = docopt(__doc__, version='UTalk websocket client 1.0')
 
     print
-    print "  UTalk websocket client"
+    print "  UTalk client"
     print
 
     password = arguments['<password>']
@@ -28,7 +28,8 @@ def main(argv=sys.argv):
     client = UTalkClient(
         maxserver=arguments['<maxserver>'],
         username=arguments['<username>'],
-        password=password
+        password=password,
+        transport='xhr'
     )
     client.connect()
     client.start()

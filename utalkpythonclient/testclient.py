@@ -33,7 +33,7 @@ class UTalkTestClient(UTalkClient):
         self.received_messages += 1
         self.test_finished()
 
-    def on_frame(self):
+    def on_message(self):
         gevent.sleep()
 
     def on_message_ackd(self):

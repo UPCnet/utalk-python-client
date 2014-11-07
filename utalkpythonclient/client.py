@@ -5,18 +5,12 @@ from maxcarrot import RabbitMessage
 from utalkpythonclient._stomp import StompHelper
 
 from utalkpythonclient.mixins import MaxAuthMixin
-from utalkpythonclient.transports import XHRPollingTransport
-from utalkpythonclient.transports import WebsocketTransport
-from utalkpythonclient.transports import SOCKJS_CONNECTED
-from utalkpythonclient.transports import SOCKJS_MESSAGE
-from utalkpythonclient.transports import SOCKJS_UNKNOWN
-from utalkpythonclient.transports import SOCKJS_HEARTBEAT
+from utalkpythonclient.transports import TRANSPORTS
 
 
 class UTalkClient(object, MaxAuthMixin):
-    Transport = XHRPollingTransport
 
-    def __init__(self, maxserver, username, password, quiet=False):
+    def __init__(self, maxserver, username, password, quiet=False, transport=None):
         """
             Creates a utalk client fetching required info from the
             max server.
@@ -31,15 +25,29 @@ class UTalkClient(object, MaxAuthMixin):
         self.token = self.get_token(oauth_server, username, password)
 
         self.stomp = StompHelper()
-        self.transport = self.Transport(maxserver, 'stomp')
+        self.transport = self.get_transport(transport, maxserver, 'stomp')
+
+    @staticmethod
+    def get_transport(transport, *args):
+        """
+            Get a initialized instance of the choosen transport.
+
+            Defaults to websocket transport
+        """
+        transport_class = TRANSPORTS.get(transport, TRANSPORTS.get('websocket'))
+        return transport_class(*args)
 
     def log(self, message):
+        """
+            Logs application messages when not on quiet mode
+        """
         if not self.quiet:
             print message
 
     def trigger(self, event, *args, **kwargs):
         """
-            Tries to call a method binded to an event
+            Tries to call a method binded to an event, when defined by a subclass.
+            The methods MUST be named as the event, prefixed with on_
         """
         event_handler_name = 'on_{}'.format(event)
         if hasattr(self, event_handler_name):
@@ -47,11 +55,14 @@ class UTalkClient(object, MaxAuthMixin):
 
     def send(self, message):
         """
-            Wraps a message to a valid sockjs frame
+            Sends a message trough the transport
         """
         self.transport.send(message)
 
     def start(self):
+        """
+            Starts the transport listener
+        """
         try:
             self.transport.start()
         except KeyboardInterrupt:
@@ -61,58 +72,23 @@ class UTalkClient(object, MaxAuthMixin):
 
     def connect(self):
         """
-            Opens a websocket and loops waiting for incoming frames.
+            Initializes the transport bindings and connection
         """
         self.trigger('connecting')
-        self.transport.on_message = self.on_message
-        self.transport.on_open = self.on_open
-        self.transport.on_close = self.on_close
+        self.transport.bind(
+            on_open=self.handle_open,
+            on_message=self.handle_message,
+            on_heartbeat=self.handle_heartbeat,
+            on_close=self.handle_close
+        )
         self.transport.connect()
 
     def disconnect(self):
         """
-            Disconnects client from socket
+            Terminates transport connection
         """
         self.log('> Closing communication')
         self.transport.close()
-
-    def on_message(self, message):
-        """
-            Triggered when a frame arribes trough the websocket.
-
-            Decodes contained stomp frame, and handles actions.
-        """
-        self.trigger('frame')
-        if message.type is SOCKJS_CONNECTED:
-            self.send(self.stomp.connect_frame(self.login, self.token))
-            self.log('> Started stomp session as {}'.format(self.username))
-
-        elif message.type is SOCKJS_HEARTBEAT:
-            pass
-
-        elif message.type is SOCKJS_MESSAGE:
-            try:
-                stomp_message = self.stomp.decode(message.content)
-            except:
-                print 'decode error'
-            else:
-                if stomp_message.command == 'CONNECTED':
-                    destination = "/exchange/{}.subscribe".format(self.username)
-                    self.send(self.stomp.subscribe_frame(destination))
-                    self.log('> Listening on {} messages'.format(self.username))
-                    self.trigger('start_listening')
-
-                elif stomp_message.command == 'MESSAGE':
-                    self.handle_message(stomp_message)
-
-                elif stomp_message.command == 'ERROR':
-                    self.log(message.content)
-
-                else:
-                    self.log(stomp_message)
-
-        elif message.type is SOCKJS_UNKNOWN:
-            print message
 
     def send_message(self, conversation, text):
         """
@@ -138,9 +114,11 @@ class UTalkClient(object, MaxAuthMixin):
         self.send(self.stomp.send_frame(headers, json_message))
         self.trigger('message_sent')
 
-    def handle_message(self, stomp):
+    def process_message(self, stomp):
         """
-            Handle a decoded stomp message and log them.
+            Handle a decoded stomp message.
+            We're assuming that stomp messages will ever contain a MaxCarrot message.
+            Based on properties fn the latter, we'll execute proper actions.
         """
         message = RabbitMessage.unpack(stomp.json)
         destination = re.search(r'([0-9a-f]+).(?:notifications|messages)', stomp.headers['destination']).groups()[0]
@@ -155,22 +133,46 @@ class UTalkClient(object, MaxAuthMixin):
         else:
             print '\n{}\n'.format(message)
 
-    def on_error(self, ws, error):
+    def handle_open(self):
         """
-            Logs on websocket error event
+            Triggered by the transport on a succesfully opened connection.
+            Tries to initialize the stomp session.
         """
-        self.log('> ERROR {}'.format(error))
+        self.log('> Opened {} connection to {}'.format(self.transport.transport_id, self.transport.url))
+        self.send(self.stomp.connect_frame(self.login, self.token))
+        self.log('> Starting STOMP session as {}'.format(self.username))
 
-    def on_close(self, ws, unk):
+    def handle_message(self, message):
         """
-            Logs on websocket close event
+            Triggered by the transport when a message arrives
+            Executes actions based on the stomp command in the message
         """
-        print ws
-        print unk
-        self.log("> Closed websocket connection")
+        self.trigger('message')
+        stomp_message = self.stomp.decode(message.content)
+        if stomp_message.command == 'CONNECTED':
+            self.log('> STOMP Session succesfully started')
+            destination = "/exchange/{}.subscribe".format(self.username)
+            self.send(self.stomp.subscribe_frame(destination))
+            self.log('> Listening on {} messages'.format(self.username))
+            self.trigger('start_listening')
 
-    def on_open(self):
+        elif stomp_message.command == 'MESSAGE':
+            self.process_message(stomp_message)
+
+        elif stomp_message.command == 'ERROR':
+            self.log(message.content)
+
+        else:
+            self.log(stomp_message)
+
+    def handle_heartbeat(self):
         """
-            Logs on websocket opened event
+            Triggered by the transport when a heartbeat  is received
         """
-        self.log('> Opened websocket connection to {}'.format(self.transport.url))
+        self.log("> Ping!")
+
+    def handle_close(self, reason):
+        """
+            Triggered by the transport when a close
+        """
+        self.log('> Closed {} connection. Reason: {}'.format(self.transport.transport_id, reason))
