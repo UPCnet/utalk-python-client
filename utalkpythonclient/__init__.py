@@ -29,6 +29,8 @@ def main(argv=sys.argv):
         maxserver=arguments['<maxserver>'],
         username=arguments['<username>'],
         password=password,
+        transport='xhr_streaming',
+        utalkserver='http://finestrelles.upcnet.es:15674'
     )
     client.connect()
     client.start()

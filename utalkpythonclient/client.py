@@ -10,7 +10,7 @@ from utalkpythonclient.transports import TRANSPORTS
 
 class UTalkClient(object, MaxAuthMixin):
 
-    def __init__(self, maxserver, username, password, quiet=False, transport=None, use_gevent=False):
+    def __init__(self, maxserver, username, password, quiet=False, transport=None, use_gevent=False, utalkserver=None):
         """
             Creates a utalk client fetching required info from the
             max server.
@@ -25,7 +25,13 @@ class UTalkClient(object, MaxAuthMixin):
         self.token = self.get_token(oauth_server, username, password)
 
         self.stomp = StompHelper()
-        self.transport = self.get_transport(transport, maxserver, 'stomp', use_gevent=use_gevent)
+        extra = {
+            "use_gevent": use_gevent
+        }
+        if utalkserver:
+            maxserver = utalkserver
+
+        self.transport = self.get_transport(transport, maxserver, 'stomp', **extra)
 
     @staticmethod
     def get_transport(transport, *args, **kwargs):

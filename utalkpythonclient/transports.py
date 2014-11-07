@@ -2,10 +2,12 @@ from collections import namedtuple
 from ws4py.client.threadedclient import WebSocketClient as ThreadedWebSocketClient
 from ws4py.client.geventclient import WebSocketClient as GeventWebSocketClient
 
+import httplib
 import json
 import random
 import re
 import requests
+import socket
 import string
 import wsaccel
 
@@ -78,8 +80,9 @@ class SockJSTransport(object):
 
         # Base path is the path to the sockjs endpoint, path is the full greeting url
         # whitout the transport identifier
-        self.base_path = '/'.join([path, prefix]).replace('//', '/')
-        self.path = '/'.join([self.base_path, server_id, client_id])
+        self.base_path = '/'.join([path])
+        self.greeting_path = '/'.join([prefix, server_id, client_id])
+        self.path = '/'.join([self.base_path, self.greeting_path])
 
         self.closing = False
 
@@ -88,21 +91,28 @@ class SockJSTransport(object):
         """
             Url of the sockjs endpoint
         """
-        return '{schema}://{host}{port_bit}/{base_path}'.format(**self.__dict__)
+        return self.normalize('{schema}://{host}{port_bit}/{base_path}'.format(**self.__dict__))
 
     @property
     def url(self):
         """
             Greeting url of the sockjs
         """
-        return '{schema}://{host}{port_bit}/{path}/{transport_id}'.format(**self.__dict__)
+        return self.normalize('{schema}://{host}{port_bit}/{path}/{transport_id}'.format(**self.__dict__))
 
     @property
     def send_url(self):
         """
             Sockjs url to be used if transport is not socket-like
         """
-        return '{schema}://{host}{port_bit}/{path}/{transport_send_id}'.format(**self.__dict__)
+        return self.normalize('{schema}://{host}{port_bit}/{path}/{transport_send_id}'.format(**self.__dict__))
+
+    @staticmethod
+    def normalize(url):
+        """
+            Removes empty path parts from url
+        """
+        return re.sub(r'([^:]/)/', r'\1', url)
 
     @staticmethod
     def random_str(length):
@@ -131,15 +141,16 @@ class SockJSTransport(object):
         # for each message in array
         elif opcode in "a":
             full_frames = []
-            match = re.search(r'(\[".*?"\])(.*)$', frame, re.DOTALL | re.MULTILINE).groups()
+            match = re.search(r'(\[".*?"\])(.*)$', frame, re.DOTALL | re.MULTILINE)
             # we have a full frame
             if match:
-                full, remaining = match
+                full, remaining = match.groups()
                 sockjs_array = json.loads(full)
                 for item in sockjs_array:
                     full_frames.append(SockJSFrame('m', item))
 
                 return full_frames, remaining
+            # we failed in parsing a full frame, so assume it's partial, and continue
             else:
                 return [], frame
         elif opcode == 'c':
@@ -218,6 +229,72 @@ class SockJSTransport(object):
 
     def _close(self):
         pass
+
+
+class XHRStreamingTransport(SockJSTransport):
+    """
+        Transport that uses xhr streaming to communicate.
+
+        Reading is made by maintaining an unfinished requests tho the sockjs endpoint,
+        acting as a unidirectional socket.
+
+        Writing is made by sending data to the send_url in separate requests.
+
+        It's expected that the server finish the request on connection close.
+    """
+    transport_id = 'xhr_streaming'
+    transport_send_id = 'xhr_send'
+    regular_schema = 'http'
+    secure_schema = 'https'
+
+    @property
+    def url(self):
+        """
+            Sockjs path to be used if transport needs it without the host part
+        """
+        return self.normalize('/{greeting_path}/{transport_id}'.format(**self.__dict__))
+
+    # SockJSTransport implementation
+
+    def _send(self, message):
+        """
+            Make a Http request to send the message to the server
+        """
+        response = requests.post(
+            self.send_url,
+            message,
+            headers={'Content-Type': 'text/plain'})
+        return response.status_code in (200, 204)
+
+    def _connect(self):
+        """
+            Start streaming request and wrap it with a socket
+        """
+        conn = httplib.HTTPConnection(self.host, self.port)
+        conn.request('POST', self.url)
+        response = conn.getresponse()
+        self.sock = socket.fromfd(response.fileno(), socket.AF_INET, socket.SOCK_STREAM)
+
+    def _start(self):
+        """
+            Loops until closing "event" is found.
+        """
+        data = ""
+        partial = ''
+        while not self.closing:
+            chunk = data = self.sock.recv(1)
+            frames = []
+            data = partial + chunk
+            frames, partial = self.parse_sockjs(data)
+
+            for frame in frames:
+                self.handle_sockjs_frame(frame)
+
+    def _close(self):
+        """
+            Sets the closing flag to stop polling
+        """
+        self.closing = True
 
 
 class XHRPollingTransport(SockJSTransport):
