@@ -1,9 +1,12 @@
 """UTalk Websocket client
 
 Usage:
-    utalk <maxserver> <username> --password <password>
+    utalk <maxserver> <username> [options]
 
 Options:
+    -p <password>, --password <password>            Password for the utalk user
+    -u <utalkserver>, --utalkserver <utalkserver>   Url of the sockjs endpoint
+    -t <transport>, --transport                     Transport used, can be websocket, xhr, xhr_streaming [default: websocket]
 """
 
 from docopt import docopt
@@ -20,17 +23,20 @@ def main(argv=sys.argv):
     print "  UTalk client"
     print
 
-    password = arguments['<password>']
+    password = arguments.get('--password', None)
     if not password:
         print '> Enter password for user {}'.format(arguments['<username>'])
         password = getpass.getpass()
 
-    client = UTalkClient(
+    params = dict(
         maxserver=arguments['<maxserver>'],
         username=arguments['<username>'],
         password=password,
-        transport='xhr_streaming',
-        utalkserver='http://finestrelles.upcnet.es:15674'
+        transport=arguments['--transport']
     )
+    if arguments.get('--utalkserver>', None):
+        params['utalkserver'] = arguments.get('--utalkserver')
+
+    client = UTalkClient(**params)
     client.connect()
     client.start()
