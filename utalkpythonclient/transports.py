@@ -366,7 +366,7 @@ class WebsocketTransport(SockJSTransport):
             Custom init method to format specific websocket schema, if url
             has been parsed from a http resource
         """
-        self.use_gevent = True
+        self.use_gevent = use_gevent
         self.client_class = GeventWebSocketClient if use_gevent else ThreadedWebSocketClient
         super(WebsocketTransport, self).__init__(url.replace('http', 'ws'), prefix)
 
