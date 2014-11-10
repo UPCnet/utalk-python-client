@@ -1,6 +1,7 @@
 import json
 import re
 import requests
+import urlparse
 
 
 class MaxAuthMixin():
@@ -46,8 +47,9 @@ class MaxAuthMixin():
         """
             Extracts the domain from the max server url, if any.
         """
-        match = re.match(r'^.*?\/([^\/\.]+)/?$', maxserver.strip(), re.IGNORECASE)
-        domain = match.groups()[0] if match else None
+        parsed = urlparse.urlparse(maxserver)
+        match = re.match(r'/([^\/]+)/?', parsed.path)
+        domain = None if match is None else match.groups()[0]
         return domain
 
     @classmethod
