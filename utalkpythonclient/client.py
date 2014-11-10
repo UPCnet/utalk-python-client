@@ -33,6 +33,10 @@ class UTalkClient(object, MaxAuthMixin):
 
         self.transport = self.get_transport(transport, maxserver, 'stomp', **extra)
 
+    @property
+    def __client__(self):
+        return 'utalk [{}]'.format(self.transport.transport_id)
+
     @staticmethod
     def get_transport(transport, *args, **kwargs):
         """
@@ -146,7 +150,7 @@ class UTalkClient(object, MaxAuthMixin):
             Tries to initialize the stomp session.
         """
         self.log('> Opened {} connection to {}'.format(self.transport.transport_id, self.transport.url))
-        self.send(self.stomp.connect_frame(self.login, self.token))
+        self.send(self.stomp.connect_frame(self.login, self.token, **{"product": self.__client__}))
         self.log('> Starting STOMP session as {}'.format(self.username))
 
     def handle_message(self, message):

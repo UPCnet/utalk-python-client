@@ -3,7 +3,9 @@ from collections import namedtuple
 from stomp.utils import Frame, convert_frame_to_lines
 
 import json
+import pkg_resources
 import re
+import sys
 
 StompMessage = namedtuple('StompMessage', ['command', 'body', 'json', 'headers'])
 
@@ -34,7 +36,7 @@ class StompHelper(object):
         decoded_body = json.loads(body) if body else body
         return StompMessage(command, body, decoded_body, headers)
 
-    def connect_frame(self, login, passcode):
+    def connect_frame(self, login, passcode, **extra_headers):
         """
             Returns a STOMP CONNECT frame.
         """
@@ -44,7 +46,10 @@ class StompHelper(object):
         headers["host"] = "/"
         headers["accept-version"] = "1.1,1.0"
         headers["heart-beat"] = "0,0"
+        headers["product-version"] = pkg_resources.require('utalk-python-client')[0].version
+        headers["platform"] = 'Python {0.major}.{0.minor}.{0.micro}'.format(sys.version_info),
 
+        headers.update(extra_headers)
         message = forge_message('CONNECT', headers)
         return message
 
