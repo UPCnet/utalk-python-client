@@ -38,5 +38,4 @@ def main(argv=sys.argv):
         params['utalkserver'] = arguments.get('--utalkserver')
 
     client = UTalkClient(**params)
-    client.connect()
     client.start()

@@ -10,7 +10,7 @@ from utalkpythonclient.transports import TRANSPORTS
 
 class UTalkClient(object, MaxAuthMixin):
 
-    def __init__(self, maxserver, username, password, quiet=False, transport=None, use_gevent=False, utalkserver=None):
+    def __init__(self, maxserver, username, password=None, quiet=False, token_login=None, transport=None, use_gevent=False, utalkserver=None):
         """
             Creates a utalk client fetching required info from the
             max server.
@@ -22,7 +22,13 @@ class UTalkClient(object, MaxAuthMixin):
         self.domain = self.get_max_domain(maxserver)
         self.username = username
         self.login = username if self.domain is None else '{}:{}'.format(self.domain, username)
-        self.token = self.get_token(oauth_server, username, password)
+
+        if token_login:
+            # Setup the provided token directly
+            self.token = token_login
+        else:
+            # Regular token login
+            self.token = self.get_token(oauth_server, username, password)
 
         self.stomp = StompHelper()
         extra = {
@@ -74,11 +80,11 @@ class UTalkClient(object, MaxAuthMixin):
             Starts the transport listener
         """
         try:
-            self.transport.start()
+            self.connect()
         except KeyboardInterrupt:
             self.log('\n> User interrupted')
             self.disconnect()
-        return False
+        return self
 
     def connect(self):
         """

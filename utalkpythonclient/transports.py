@@ -205,7 +205,7 @@ class SockJSTransport(object):
         """
             Initiate transport connection
         """
-        return self._connect()
+        self._connect()
 
     def start(self):
         """
