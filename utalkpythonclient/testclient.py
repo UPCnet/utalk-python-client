@@ -1,6 +1,7 @@
 from utalkpythonclient.client import UTalkClient
 from gevent.monkey import patch_all
 import gevent
+from datetime import datetime
 
 
 class UTalkTestClient(UTalkClient):
@@ -18,6 +19,10 @@ class UTalkTestClient(UTalkClient):
 
         self.received_messages = 0
         self.ackd_messages = 0
+        self.stats = {
+            "recv_times": [],
+            "ackd_times": []
+        }
 
     def succeded(self):
         return self.received_messages == self.expected_messages and \
@@ -26,14 +31,25 @@ class UTalkTestClient(UTalkClient):
     def on_connecting(self):
         patch_all()
 
-    def on_message_received(self):
+    def on_message_received(self, message):
+        # Collect stats for messages received from other users
+        if self.username != message.json['u']['u']:
+            now = datetime.utcnow()
+            message_elapsed = now - datetime.strptime(message.json['p'], '%Y-%m-%dT%H:%M:%SZ')
+            self.stats['recv_times'].append(message_elapsed.total_seconds())
+
         self.received_messages += 1
         self.test_finished()
 
     def on_message(self):
         gevent.sleep()
 
-    def on_message_ackd(self):
+    def on_message_ackd(self, message):
+        if self.username != message.json['u']['u']:
+            now = datetime.utcnow()
+            message_elapsed = now - datetime.strptime(message.json['p'], '%Y-%m-%dT%H:%M:%SZ')
+            self.stats['ackd_times'].append(message_elapsed.total_seconds())
+
         self.ackd_messages += 1
         self.test_finished()
 

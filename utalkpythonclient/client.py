@@ -142,12 +142,12 @@ class UTalkClient(object, MaxAuthMixin):
         destination = re.search(r'([0-9a-f]+).(?:notifications|messages)', stomp.headers['destination']).groups()[0]
         if message['action'] == 'add' and message['object'] == 'message':
             self.log('> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text']))
-            self.trigger('message_received')
+            self.trigger('message_received', stomp)
         elif message['action'] == 'add' and message['object'] == 'conversation':
             self.log('> {}@{}: Just started a chat'.format(message['user']['username'], destination))
-            self.trigger('conversation_started')
+            self.trigger('conversation_started', stomp)
         elif message['action'] == 'ack' and message['object'] == 'message':
-            self.trigger('message_ackd')
+            self.trigger('message_ackd', stomp)
         else:
             print '\n{}\n'.format(message)
 
