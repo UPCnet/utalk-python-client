@@ -38,7 +38,7 @@ class UTalkTestClient(UTalkClient):
         self.test_finished()
 
     def test_finished(self):
-        # print '{} AKCD:{}, RECV:{}'.format(self.username, self.ackd_messages, self.received_messages)
+        #print '{} AKCD:{}, RECV:{}'.format(self.username, self.ackd_messages, self.received_messages)
         if self.succeded():
             self.disconnect()
 

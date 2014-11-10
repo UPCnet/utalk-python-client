@@ -81,6 +81,7 @@ class UTalkClient(object, MaxAuthMixin):
         """
         try:
             self.connect()
+            self.transport.start()
         except KeyboardInterrupt:
             self.log('\n> User interrupted')
             self.disconnect()
