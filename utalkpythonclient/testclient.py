@@ -1,6 +1,3 @@
-import sys
-if 'threading' in sys.modules:
-    del sys.modules['threading']
 from utalkpythonclient.client import UTalkClient
 from gevent.monkey import patch_all
 import gevent
