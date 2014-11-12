@@ -1,12 +1,14 @@
 import json
 import re
 
+from datetime import datetime
 from maxcarrot import RabbitMessage
 from utalkpythonclient._stomp import StompHelper
 
 from utalkpythonclient.mixins import MaxAuthMixin
 from utalkpythonclient.transports import TRANSPORTS
 from utalkpythonclient._stomp import StompAccessDenied
+
 
 class UTalkClient(object, MaxAuthMixin):
 
@@ -38,6 +40,7 @@ class UTalkClient(object, MaxAuthMixin):
             maxserver = utalkserver
 
         self.transport = self.get_transport(transport, maxserver, 'stomp', **extra)
+        self.history = []
 
     @property
     def __client__(self):
@@ -58,7 +61,10 @@ class UTalkClient(object, MaxAuthMixin):
             Logs application messages when not on quiet mode
         """
         if not self.quiet:
-            print message
+            try:
+                print message
+            except:
+                pass
 
     def trigger(self, event, *args, **kwargs):
         """
@@ -85,6 +91,9 @@ class UTalkClient(object, MaxAuthMixin):
         except KeyboardInterrupt:
             self.log('\n> User interrupted')
             self.disconnect()
+            total_messages = len(self.history)
+            average_recv_time = sum([a[1] for a in self.history]) / total_messages
+            self.log('> Received {} messages, average reception time: {:.3f}'.format(total_messages, average_recv_time))
         return self
 
     def connect(self):
@@ -141,7 +150,11 @@ class UTalkClient(object, MaxAuthMixin):
         message = RabbitMessage.unpack(stomp.json)
         destination = re.search(r'([0-9a-f]+).(?:notifications|messages)', stomp.headers['destination']).groups()[0]
         if message['action'] == 'add' and message['object'] == 'message':
-            self.log('> {}@{}: {}'.format(message['user']['username'], destination, message['data']['text']))
+            sent = datetime.strptime(message['published'], '%Y-%m-%dT%H:%M:%S.%fZ')
+            recv = datetime.utcnow()
+            elapsed = abs((recv - sent).total_seconds())
+            self.history.append((message, elapsed))
+            self.log('> {}@{} ({:.3f}): {}'.format(message['user']['username'], destination, elapsed, message['data']['text']))
             self.trigger('message_received', stomp)
         elif message['action'] == 'add' and message['object'] == 'conversation':
             self.log('> {}@{}: Just started a chat'.format(message['user']['username'], destination))
