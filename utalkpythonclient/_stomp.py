@@ -10,6 +10,11 @@ import sys
 StompMessage = namedtuple('StompMessage', ['command', 'body', 'json', 'headers'])
 
 
+class StompAccessDenied(Exception):
+    """
+    """
+
+
 def forge_message(command, headers, body=''):
     """
         Returns a STOMP compliant frame.
@@ -33,8 +38,12 @@ class StompHelper(object):
         command, header, body = match.groups()
         headers = dict(re.findall(r'\n?([^:]+):(.*)', header))
 
-        decoded_body = json.loads(body) if body else body
-        return StompMessage(command, body, decoded_body, headers)
+        try:
+            decoded_body = json.loads(body) if body else body
+            return StompMessage(command, body, decoded_body, headers)
+        except:
+            if 'Access refused' in body:
+                raise StompAccessDenied(body)
 
     def connect_frame(self, login, passcode, **extra_headers):
         """

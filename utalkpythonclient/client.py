@@ -6,7 +6,7 @@ from utalkpythonclient._stomp import StompHelper
 
 from utalkpythonclient.mixins import MaxAuthMixin
 from utalkpythonclient.transports import TRANSPORTS
-
+from utalkpythonclient._stomp import StompAccessDenied
 
 class UTalkClient(object, MaxAuthMixin):
 
@@ -166,7 +166,11 @@ class UTalkClient(object, MaxAuthMixin):
             Executes actions based on the stomp command in the message
         """
         self.trigger('message')
-        stomp_message = self.stomp.decode(message.content)
+        try:
+            stomp_message = self.stomp.decode(message.content)
+        except StompAccessDenied:
+            self.send(self.stomp.connect_frame(self.login, self.token, **{"product": self.__client__}))
+            return
         if stomp_message.command == 'CONNECTED':
             self.log('> STOMP Session succesfully started')
             destination = "/exchange/{}.subscribe".format(self.username)
