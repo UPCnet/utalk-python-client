@@ -5,6 +5,7 @@ Usage:
 
 Options:
     -p <password>, --password <password>            Password for the utalk user
+    -l <token>, --tokenlogin <token>                Login with token instead of password
     -u <utalkserver>, --utalkserver <utalkserver>   Url of the sockjs endpoint
     -t <transport>, --transport                     Transport used, can be websocket, xhr, xhr_streaming [default: websocket]
 """
@@ -24,16 +25,22 @@ def main(argv=sys.argv):
     print
 
     password = arguments.get('--password', None)
-    if not password:
+    token = arguments.get('--tokenlogin', None)
+    if not password and not token:
         print '> Enter password for user {}'.format(arguments['<username>'])
         password = getpass.getpass()
 
     params = dict(
         maxserver=arguments['<maxserver>'],
         username=arguments['<username>'],
-        password=password,
         transport=arguments['--transport']
     )
+
+    if password:
+        params['password'] = password
+    elif token:
+        params['token_login'] = token
+
     if arguments.get('--utalkserver>', None):
         params['utalkserver'] = arguments.get('--utalkserver')
 
