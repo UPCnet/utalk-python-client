@@ -8,6 +8,8 @@ from utalkpythonclient._stomp import StompHelper
 from utalkpythonclient.mixins import MaxAuthMixin
 from utalkpythonclient.transports import TRANSPORTS
 from utalkpythonclient._stomp import StompAccessDenied
+from utalkpythonclient._stomp import StompExchangeNotFound
+from utalkpythonclient._stomp import StompError
 
 
 class UTalkClient(object, MaxAuthMixin):
@@ -40,7 +42,8 @@ class UTalkClient(object, MaxAuthMixin):
             maxserver = utalkserver
 
         self.transport = self.get_transport(transport, maxserver, 'stomp', **extra)
-        self.history = []
+        self.received = []
+        self.acknowledged = []
 
     @property
     def __client__(self):
@@ -62,7 +65,7 @@ class UTalkClient(object, MaxAuthMixin):
         """
         if not self.quiet:
             try:
-                print message
+                print '> {}'.format(message)
             except:
                 pass
 
@@ -91,9 +94,12 @@ class UTalkClient(object, MaxAuthMixin):
         except KeyboardInterrupt:
             self.log('\n> User interrupted')
             self.disconnect()
-            total_messages = len(self.history)
-            average_recv_time = sum([a[1] for a in self.history]) / total_messages
-            self.log('> Received {} messages, average reception time: {:.3f}'.format(total_messages, average_recv_time))
+            total_messages = len(self.received)
+            average_recv_time = sum([a[1] for a in self.received]) / total_messages if total_messages else 0
+            total_acks = len(self.acknowledged)
+            average_ackd_time = sum([a[1] for a in self.acknowledged]) / total_acks if total_acks else 0
+            self.log('Received {} messages, average reception time: {:.3f}'.format(total_messages, average_recv_time))
+            self.log('Acknowledged {} messages, average acknowledge time: {:.3f}'.format(total_messages, average_ackd_time))
         return self
 
     def connect(self):
@@ -113,7 +119,7 @@ class UTalkClient(object, MaxAuthMixin):
         """
             Terminates transport connection
         """
-        self.log('> Closing communication')
+        self.log('Closing communication')
         self.transport.close()
         self.trigger('disconnect')
 
@@ -153,13 +159,17 @@ class UTalkClient(object, MaxAuthMixin):
             sent = datetime.strptime(message['published'], '%Y-%m-%dT%H:%M:%S.%fZ')
             recv = datetime.utcnow()
             elapsed = abs((recv - sent).total_seconds())
-            self.history.append((message, elapsed))
-            self.log('> {}@{} ({:.3f}): {}'.format(message['user']['username'], destination, elapsed, message['data']['text']))
+            self.received.append((message, elapsed))
+            #self.log('{}@{} ({:.3f}): {}'.format(message['user']['username'], destination, elapsed, message['data']['text']))
             self.trigger('message_received', stomp)
         elif message['action'] == 'add' and message['object'] == 'conversation':
-            self.log('> {}@{}: Just started a chat'.format(message['user']['username'], destination))
+            self.log('{}@{}: Just started a chat'.format(message['user']['username'], destination))
             self.trigger('conversation_started', stomp)
         elif message['action'] == 'ack' and message['object'] == 'message':
+            sent = datetime.strptime(message['published'], '%Y-%m-%dT%H:%M:%S.%fZ')
+            recv = datetime.utcnow()
+            elapsed = abs((recv - sent).total_seconds())
+            self.acknowledged.append((message, elapsed))
             self.trigger('message_ackd', stomp)
         else:
             print '\n{}\n'.format(message)
@@ -169,9 +179,9 @@ class UTalkClient(object, MaxAuthMixin):
             Triggered by the transport on a succesfully opened connection.
             Tries to initialize the stomp session.
         """
-        self.log('> Opened {} connection to {}'.format(self.transport.transport_id, self.transport.url))
+        self.log('Opened {} connection to {}'.format(self.transport.transport_id, self.transport.url))
         self.send(self.stomp.connect_frame(self.login, self.token, **{"product": self.__client__}))
-        self.log('> Starting STOMP session as {}'.format(self.username))
+        self.log('Starting STOMP session as {}'.format(self.username))
 
     def handle_message(self, message):
         """
@@ -179,16 +189,27 @@ class UTalkClient(object, MaxAuthMixin):
             Executes actions based on the stomp command in the message
         """
         self.trigger('message')
+
         try:
             stomp_message = self.stomp.decode(message.content)
-        except StompAccessDenied:
+        except StompAccessDenied as exc:
+            self.log(exc.message)
             self.send(self.stomp.connect_frame(self.login, self.token, **{"product": self.__client__}))
             return
+        except StompExchangeNotFound as exc:
+            self.log(exc.message)
+            self.disconnect()
+            return
+        except StompError as exc:
+            self.log(exc.message)
+            self.disconnect()
+            return
+
         if stomp_message.command == 'CONNECTED':
-            self.log('> STOMP Session succesfully started')
+            self.log('STOMP Session succesfully started')
             destination = "/exchange/{}.subscribe".format(self.username)
             self.send(self.stomp.subscribe_frame(destination))
-            self.log('> Listening on {} messages'.format(self.username))
+            self.log('Listening on {} messages'.format(self.username))
             self.trigger('start_listening')
 
         elif stomp_message.command == 'MESSAGE':
@@ -210,4 +231,4 @@ class UTalkClient(object, MaxAuthMixin):
         """
             Triggered by the transport when a close
         """
-        self.log('> Closed {} connection. Reason: {}'.format(self.transport.transport_id, reason))
+        self.log('Closed {} connection. Reason: {}'.format(self.transport.transport_id, reason))

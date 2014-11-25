@@ -10,7 +10,20 @@ import sys
 StompMessage = namedtuple('StompMessage', ['command', 'body', 'json', 'headers'])
 
 
-class StompAccessDenied(Exception):
+class StompError(Exception):
+    """
+    """
+    def __init__(self, msg):
+        msg = 'STOMP ERROR:  {}'.format(msg.strip())
+        super(StompError, self).__init__(msg)
+
+
+class StompAccessDenied(StompError):
+    """
+    """
+
+
+class StompExchangeNotFound(StompError):
     """
     """
 
@@ -44,6 +57,10 @@ class StompHelper(object):
         except:
             if 'Access refused' in body:
                 raise StompAccessDenied(body)
+            elif 'NOT_FOUND - no exchange' in body:
+                raise StompExchangeNotFound(body)
+            else:
+                raise StompError(body)
 
     def connect_frame(self, login, passcode, **extra_headers):
         """
