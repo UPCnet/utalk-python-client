@@ -154,7 +154,7 @@ class SockJSTransport(object):
             else:
                 return [], frame
         elif opcode == 'c':
-            raise Exception('Close frame received, {}'.format(body))
+            return [SockJSFrame(opcode, '{} "{}"'.format(*json.loads(body)))], ''
         elif opcode == 'm':
             raise Exception('Message frame received, {}'.format(body))
 
@@ -187,7 +187,7 @@ class SockJSTransport(object):
         elif frame.type is SOCKJS_MESSAGE:
             self.on_message(frame)
         elif frame.type is SOCKJS_CLOSE:
-            self.on_close(frame)
+            self.on_close(frame.content)
 
     def sockjs_info(self):
         """
