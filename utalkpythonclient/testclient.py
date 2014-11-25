@@ -75,7 +75,7 @@ class UTalkTestClient(UTalkClient):
         self.wait_send.ready()
         gevent.sleep()
         self.wait_send.event.get()
-        gevent.sleep(self.start_delay)
+        gevent.sleep(self.start_delay * 1.6)
 
         self.log("start sending {} messages".format(self.username))
         next_message_date = datetime.utcnow()
