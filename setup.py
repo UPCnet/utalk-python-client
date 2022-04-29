@@ -18,6 +18,8 @@ A STOMP-trough-websockets python implementation for the UTalk service""",
       zip_safe=False,
       install_requires=[
           # -*- Extra requirements: -*-
+          'setuptools',
+          'ipdb',
           'docopt',
           'maxcarrot',
           'stomp.py',
