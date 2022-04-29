@@ -1,11 +1,10 @@
 CHANGELOG
 =========
 
-1.1 (unreleased)
+1.1 (2022-04-29)
 ----------------
 
-- Nothing changed yet.
-
+* setuptools and ipdb [Pilar Marinas]
 
 1.0 (unreleased)
 -------------------
