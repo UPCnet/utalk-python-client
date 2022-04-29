@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+1.2 (unreleased)
+----------------
+
+- Nothing changed yet.
+
+
 1.1 (2022-04-29)
 ----------------
 
